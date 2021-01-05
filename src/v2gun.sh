@@ -4,7 +4,7 @@ export LANG=en_US
 export LANGUAGE=en_US.UTF-8
 
 branch="vless"
-VERSION="2.2.0"
+VERSION="2.1.7"
 
 if [[ $(/usr/bin/id -u) -ne 0 ]]; then
   sudoCmd="sudo"
@@ -182,7 +182,7 @@ show_links() {
     echo ""
 
     colorEcho ${BLUE} "NaiveProxy"
-    printf "%s\n" "https://user@${sni}:${uuid}@${sni}"
+    printf "%s\n" "naive+https://user:${uuid}@${sni}:443"
 
     colorEcho ${YELLOW} "========================================"
   fi
@@ -201,35 +201,39 @@ preinstall() {
   # get dependencies
   ${sudoCmd} ${PACKAGE_MANAGEMENT_INSTALL} epel-release -y 2>/dev/null # centos
   ${sudoCmd} ${PACKAGE_MANAGEMENT_UPDATE} -y
-  ${sudoCmd} ${PACKAGE_MANAGEMENT_INSTALL} coreutils curl git wget unzip xz-utils -y
+  ${sudoCmd} ${PACKAGE_MANAGEMENT_INSTALL} coreutils curl git libnss3 socat wget unzip xz-utils -y
 
   ${sudoCmd} ${PACKAGE_MANAGEMENT_INSTALL} jq -y
+
   # install jq mannualy if the package management didn't
   if [[ ! "$(command -v jq)" ]]; then
     echo "Fetching jq failed, trying manual installation"
     ${sudoCmd} curl -L https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64 -o /usr/bin/jq
     ${sudoCmd} $(which chmod) +x /usr/bin/jq
   fi
+
+  curl -fsSL https://get.acme.sh | bash
 }
 
-get_acmesh() {
-  colorEcho ${BLUE} "Installing acme.sh"
-  curl -fsSL https://get.acme.sh | ${sudoCmd} bash
+get_cert_standalone() {
+  # use standalone mode to issue cert
+  colorEcho ${BLUE} "Issuing certificate"
+  ~/.acme.sh/acme.sh --issue -d "$1" --standalone --keylength ec-256
 }
 
 get_cert() {
   colorEcho ${BLUE} "Issuing certificate"
-  ${sudoCmd} /root/.acme.sh/acme.sh --issue -d "$1" -w /var/www/html --keylength ec-256
+  ~/.acme.sh/acme.sh --issue -d "$1" -w /var/www/html --keylength ec-256
 
   # install certificate
   colorEcho ${BLUE} "Installing certificate"
-  ${sudoCmd} /root/.acme.sh/acme.sh --install-cert --ecc -d "$1" \
+  ${sudoCmd} ~/.acme.sh/acme.sh --install-cert --ecc --force -d "$1" \
   --key-file /etc/ssl/v2ray/key.pem --fullchain-file /etc/ssl/v2ray/fullchain.pem \
   --reloadcmd "chmod 644 /etc/ssl/v2ray/fullchain.pem; chmod 644 /etc/ssl/v2ray/key.pem; systemctl restart v2ray"
 }
 
 get_trojan() {
-  if [ ! -d "/usr/bin/trojan-go" ]; then
+  if [ ! -f "/usr/bin/trojan-go" ]; then
     colorEcho ${BLUE} "trojan-go is not installed. start installation"
 
     colorEcho ${BLUE} "Getting the latest version of trojan-go"
@@ -242,9 +246,9 @@ get_trojan() {
     cd $(mktemp -d)
     wget -q --show-progress "${trojango_link}" -O trojan-go.zip
     unzip -q trojan-go.zip && rm -rf trojan-go.zip
-    ${sudoCmd} mv trojan-go /usr/bin/trojan-go && ${sudoCmd} $(which chmod) +x /usr/bin/trojan-go
-    ${sudoCmd} mv geoip.dat /usr/bin/geoip.dat
-    ${sudoCmd} mv geosite.dat /usr/bin/geosite.dat
+    ${sudoCmd} $(which mv) trojan-go /usr/bin/trojan-go && ${sudoCmd} $(which chmod) +x /usr/bin/trojan-go
+    ${sudoCmd} $(which mv) geoip.dat /usr/bin/geoip.dat
+    ${sudoCmd} $(which mv) geosite.dat /usr/bin/geosite.dat
 
     colorEcho ${BLUE} "Building trojan-go.service"
     ${sudoCmd} mv example/trojan-go.service /etc/systemd/system/trojan-go.service
@@ -257,12 +261,12 @@ get_trojan() {
     colorEcho ${BLUE} "Getting the latest version of trojan-go"
     local latest_version="$(curl -s "https://api.github.com/repos/p4gefau1t/trojan-go/releases" | jq '.[0].tag_name' --raw-output)"
     echo "${latest_version}"
-    local trojango_link="https://github.com/p4gefau1t/trojan-go/releases/download/${latest_version}/trojan-go-linux-${V2_MACHINE}.zip"
+    local trojango_link="https://github.com/p4gefau1t/trojan-go/releases/download/${latest_version}/trojan-go-linux-${TJ_MACHINE}.zip"
 
     cd $(mktemp -d)
     wget -q --show-progress "${trojango_link}" -O trojan-go.zip
     unzip trojan-go.zip && rm -rf trojan-go.zip
-    ${sudoCmd} mv trojan-go /usr/bin/trojan-go && ${sudoCmd} $(which chmod) +x /usr/bin/trojan-go
+    ${sudoCmd} $(which mv) trojan-go /usr/bin/trojan-go && ${sudoCmd} $(which chmod) +x /usr/bin/trojan-go
     colorEcho ${GREEN} "trojan-go has been updated."
   fi
 }
@@ -294,7 +298,8 @@ get_v2ray() {
     colorEcho ${BLUE} "V2Ray is not installed. start installation"
 
     colorEcho ${BLUE} "Getting the latest version of v2ray-core"
-    local latest_version="$(curl -s "https://api.github.com/repos/v2fly/v2ray-core/releases/latest" | jq '.tag_name' --raw-output)"
+    #local latest_version="$(curl -s "https://api.github.com/repos/v2fly/v2ray-core/releases/latest" | jq '.tag_name' --raw-output)"
+    local latest_version="v4.32.1"
     echo "${latest_version}"
     local v2ray_link="https://github.com/v2fly/v2ray-core/releases/download/${latest_version}/v2ray-linux-${V2_MACHINE}.zip"
 
@@ -540,7 +545,7 @@ EOF
 set_naive() {
   ${sudoCmd} cat > "/usr/local/etc/naive/config.json" <<-EOF
 {
-  "listen": "http://127.0.0.1:8080",
+  "listen": "http://127.0.0.1:8081",
   "padding": "true"
 }
 EOF
@@ -637,6 +642,9 @@ WantedBy=multi-user.target
 EOF
 }
 
+# naiveproxy support is still under experiment
+# forward_proxy only works with 443 port according to caddy2's document. will try to figure out this
+# https://github.com/caddyserver/forwardproxy/tree/caddy2
 set_caddy() {
   ${sudoCmd} cat > "/usr/local/etc/caddy/Caddyfile"<<-EOF
 http://$1:80 {
@@ -646,10 +654,11 @@ http://$1:8080 {
   bind 127.0.0.1
   route {
     forward_proxy {
-      basic_auth user@$1 $2
+      basic_auth user $2
       hide_ip
       hide_via
       probe_resistance unsplash.com:443
+      upstream http://127.0.0.1:8081
     }
     file_server { root /var/www/html }
   }
@@ -658,7 +667,7 @@ EOF
 }
 
 get_caddy() {
-  if [ ! -d "/usr/local/bin/caddy" ]; then
+  if [ ! -f "/usr/local/bin/caddy" ]; then
     colorEcho ${BLUE} "Caddy 2 is not installed. start installation"
 
     local caddy_link="https://github.com/charlieethan/build/releases/download/v2.2.1/caddy-linux-${CY_MACHINE}"
@@ -705,38 +714,33 @@ fix_cert() {
 
     local uuid="$(read_json /usr/local/etc/v2ray/05_inbounds_vless.json '.inbounds[0].settings.clients[0].id')"
     local path="$(read_json /usr/local/etc/v2ray/05_inbounds_ss.json '.inbounds[0].streamSettings.wsSettings.path')"
+    local cf_node="$(read_json /usr/local/etc/v2ray/05_inbounds_ss.json '.inbounds[0].tag')"
 
-    ${sudoCmd} $(which rm) -f /root/.acme.sh/$(read_json /usr/local/etc/v2ray/05_inbounds_vless.json '.inbounds[0].tag')_ecc/$(read_json /usr/local/etc/v2ray/05_inbounds_vless.json '.inbounds[0].tag').key
+    ~/.acme.sh/acme.sh --remove -d $(read_json /usr/local/etc/v2ray/05_inbounds_vless.json '.inbounds[0].tag') --ecc
+    ${sudoCmd} $(which rm) -rf ~/.acme.sh/$(read_json /usr/local/etc/v2ray/05_inbounds_vless.json '.inbounds[0].tag')_ecc
+
+    colorEcho ${BLUE} "Re-setting v2ray"
+    set_v2ray "${uuid}" "${path}" "${V2_DOMAIN}" "${cf_node}"
 
     colorEcho ${BLUE} "Re-setting caddy"
     set_caddy "${V2_DOMAIN}" "${uuid}"
-    ${sudoCmd} systemctl restart caddy 2>/dev/null
 
     colorEcho ${BLUE} "Re-setting trojan-go"
     set_trojan "${uuid}" "${path}tj" "${V2_DOMAIN}"
-    ${sudoCmd} systemctl restart trojan-go 2>/dev/null
-
-    colorEcho ${BLUE} "Re-setting v2ray"
-    # temporary cert
-    ${sudoCmd} openssl req -new -newkey rsa:2048 -days 1 -nodes -x509 -subj "/C=US/ST=Oregon/L=Portland/O=Company Name/OU=Org/CN=${V2_DOMAIN}" -keyout /etc/ssl/v2ray/key.pem -out /etc/ssl/v2ray/fullchain.pem
-    ${sudoCmd} chmod 644 /etc/ssl/v2ray/key.pem
-    ${sudoCmd} chmod 644 /etc/ssl/v2ray/fullchain.pem
-
-    ${sudoCmd} systemctl restart v2ray 2>/dev/null
-
-    sleep 5
 
     colorEcho ${BLUE} "Re-issuing certificates for ${V2_DOMAIN}"
+    ${sudoCmd} systemctl stop caddy
+    get_cert_standalone "${V2_DOMAIN}"
+
+    ${sudoCmd} systemctl restart caddy 2>/dev/null
+    ${sudoCmd} systemctl restart trojan-go 2>/dev/null
+    ${sudoCmd} systemctl restart v2ray 2>/dev/null
     get_cert "${V2_DOMAIN}"
 
     write_json /usr/local/etc/v2ray/05_inbounds_vless.json ".inbounds[0].tag" "\"${V2_DOMAIN}\""
 
-    if [ -f "/root/.acme.sh/${V2_DOMAIN}_ecc/fullchain.cer" ]; then
-      colorEcho ${GREEN} "证书修复成功!"
-      show_links
-    else
-      colorEcho ${RED} "证书签发失败, 請运行修复证书"
-    fi
+    colorEcho ${GREEN} "证书修复完成"
+    show_links
   else
     colorEcho ${YELLOW} "请先安装 V2Ray"
   fi
@@ -785,13 +789,11 @@ install_v2ray() {
 
   ${sudoCmd} $(which mkdir) -p /etc/ssl/v2ray
 
-  # temporary cert
-  ${sudoCmd} openssl req -new -newkey rsa:2048 -days 1 -nodes -x509 -subj "/C=US/ST=Oregon/L=Portland/O=Company Name/OU=Org/CN=${V2_DOMAIN}" -keyout /etc/ssl/v2ray/key.pem -out /etc/ssl/v2ray/fullchain.pem
-  ${sudoCmd} $(which chmod) 644 /etc/ssl/v2ray/key.pem
-  ${sudoCmd} $(which chmod) 644 /etc/ssl/v2ray/fullchain.pem
-
   colorEcho ${BLUE} "Building dummy web site"
   build_web
+
+  ${sudoCmd} systemctl stop caddy 2>/dev/null
+  get_cert_standalone "${V2_DOMAIN}"
 
   # activate services
   colorEcho ${BLUE} "Activating services"
@@ -810,17 +812,10 @@ install_v2ray() {
   ${sudoCmd} systemctl enable naive
   ${sudoCmd} systemctl restart naive 2>/dev/null
 
-  sleep 5
-
-  get_acmesh
   get_cert "${V2_DOMAIN}"
 
-  if [ -f "/root/.acme.sh/${V2_DOMAIN}_ecc/fullchain.cer" ]; then
-    colorEcho ${GREEN} "安装 VLESS + VMess + Trojan + NaiveProxy 成功!"
-    show_links
-  else
-    colorEcho ${RED} "证书签发失败, 请运行修复证书"
-  fi
+  colorEcho ${GREEN} "安装 VLESS + VMess + Trojan + NaiveProxy 成功!"
+  show_links
 }
 
 edit_cf_node() {
